@@ -43,7 +43,7 @@ from acunetix_client import (
 )
 
 # 项目版本号（单一来源；__init__.py 的 __version__ 引用此值）
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("acunetix-mcp")
@@ -299,7 +299,10 @@ def acunetix_preflight_scan(target_id: str) -> dict:
 
 @mcp.tool()
 def acunetix_list_scans(limit: int = 20) -> dict:
-    """列出扫描任务（GET /api/v1/scans?l=N）。"""
+    """列出扫描任务（GET /api/v1/scans?l=N）——【摘要级】。
+    轮询单次扫描状态用 acunetix_rest（method=GET, path=scans/{scan_id}）。
+    注意：progress 在扫描处理中恒为 0（完成才=100），判断进展用
+    current_session.severity_counts / threat 是否变化，详见 PROTOCOL §9。"""
     try:
         return _ok(get_client().rest_scans(limit))
     except Exception as exc:
@@ -308,7 +311,11 @@ def acunetix_list_scans(limit: int = 20) -> dict:
 
 @mcp.tool()
 def acunetix_list_vulnerabilities(limit: int = 20) -> dict:
-    """列出漏洞（GET /api/v1/vulnerabilities?l=N）。"""
+    """列出漏洞（GET /api/v1/vulnerabilities?l=N）——【摘要级】。
+    每条含：漏洞类型/URL/严重度(0-4)/置信度/CWE 标签/状态/vuln_id。
+    需要完整证据时（复现请求+注入 payload/CVSS 评分/影响/修复建议/参考链接）：
+    用返回的 vuln_id 调 acunetix_rest（method=GET, path=vulnerabilities/{vuln_id}）获取【详情级】数据。
+    注意：详情含注入 payload 等敏感请求内容，仅用于授权报告，勿写入公开日志/聊天。"""
     try:
         return _ok(get_client().rest_vulnerabilities(limit))
     except Exception as exc:

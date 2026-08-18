@@ -2,7 +2,7 @@
 
 **Model Context Protocol (MCP) server that lets any LLM (Claude, WorkBuddy, Cursor, etc.) directly operate an Acunetix / Invicti Web Vulnerability Scanner.**
 
-**当前版本：v1.3.2**
+**当前版本：v1.3.3**
 
 基于官方内置 API 文档（Swagger 2.0，111 路径 / 161 操作）与公开接口行为分析，将 Acunetix 的完整 API 协议（GraphQL + REST 双通道）封装为 23 个 LLM 可调用工具。官方已确认该产品提供完整 REST API，本 Server 是其 MCP 化封装。
 
