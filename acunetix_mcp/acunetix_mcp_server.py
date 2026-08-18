@@ -43,7 +43,7 @@ from acunetix_client import (
 )
 
 # 项目版本号（单一来源；__init__.py 的 __version__ 引用此值）
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("acunetix-mcp")

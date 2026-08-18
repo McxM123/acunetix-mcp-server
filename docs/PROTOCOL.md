@@ -117,3 +117,22 @@ GET  /api/v1/me/stats         # 统计
 **查询/删除**：
 - `GET` 同端点 → `UploadedFile {upload_id, name, size, status}`；未配置时 **404**
 - `DELETE` 同端点 → 204；未配置时 404（视为已删除，幂等）
+
+## 9. 扫描进度字段行为（实测确认，v24.8）
+
+**已知行为**：`GET /scans/{id}` 的 `current_session.progress` 在**扫描处理中（processing）恒为 0**，
+不会随进度更新；仅在扫描完成时跳变为 **100**，失败/中止为 **0**。
+（YAML 规范中该字段合法存在且标注 "Percentage of Scan progress complete"，但本版本不更新中间值——
+已实测：90 秒轮询 6 次 progress 恒 0，同时 severity_counts/threat 持续变化。）
+
+**判断扫描进展的可靠指标**（轮询时优先看这些）：
+
+| 字段 | 行为（实测） | 用途 |
+|---|---|---|
+| `current_session.status` | processing → completed/aborted/failed | 是否结束 |
+| `current_session.severity_counts` | **实时变化**（漏洞数持续增长） | 扫描是否在推进 |
+| `current_session.threat` | **实时变化**（威胁等级 0→2→3） | 发现严重度变化 |
+| `current_session.progress` | **processing 恒 0，completed=100** | 仅判断是否完成（100=完成） |
+
+**给 LLM 的轮询建议**：不要用 progress 判断"是否有进展"（恒 0 会误导）；
+用 severity_counts/threat 是否变化判断推进，用 status 判断结束。

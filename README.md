@@ -2,7 +2,7 @@
 
 **Model Context Protocol (MCP) server that lets any LLM (Claude, WorkBuddy, Cursor, etc.) directly operate an Acunetix / Invicti Web Vulnerability Scanner.**
 
-**当前版本：v1.3.1**
+**当前版本：v1.3.2**
 
 基于官方内置 API 文档（Swagger 2.0，111 路径 / 161 操作）与公开接口行为分析，将 Acunetix 的完整 API 协议（GraphQL + REST 双通道）封装为 23 个 LLM 可调用工具。官方已确认该产品提供完整 REST API，本 Server 是其 MCP 化封装。
 
@@ -151,7 +151,7 @@ python -m acunetix_mcp
 2. acunetix_list_targets()            # 查看目标 → 取 target_id
 3. acunetix_list_scan_profiles()      # 查看配置 → 取 profile_id
 4. acunetix_start_scan(target_id, profile_id)
-5. acunetix_list_scans()              # 轮询扫描状态
+5. acunetix_list_scans()              # 轮询扫描状态（注意：progress 在扫描中恒 0，用 severity_counts/threat 变化判断进展，见 PROTOCOL §9）
 6. acunetix_list_vulnerabilities()    # 获取漏洞
 7. acunetix_gql(GetReport)            # 生成报告
 8. acunetix_logout()
