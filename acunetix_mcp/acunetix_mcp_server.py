@@ -43,7 +43,7 @@ from acunetix_client import (
 )
 
 # 项目版本号（单一来源；__init__.py 的 __version__ 引用此值）
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("acunetix-mcp")
@@ -195,7 +195,10 @@ def acunetix_use_api_key(api_key: str) -> dict:
 
 @mcp.tool()
 def acunetix_logout() -> dict:
-    """登出并清理本地会话。"""
+    """登出并清理本地会话。
+    影响：登出后本 MCP 的 Acunetix 认证失效，后续调用工具会提示未认证——
+    需重新 acunetix_use_api_key 或 acunetix_login。
+    注意：这只会登出 Acunetix 扫描系统，不影响任何目标网站登录态。"""
     try:
         get_client().logout()
         return _ok({"logged_out": True})
@@ -205,7 +208,9 @@ def acunetix_logout() -> dict:
 
 @mcp.tool()
 def acunetix_me() -> dict:
-    """获取当前登录用户信息（GraphQL）。"""
+    """获取当前登录用户信息（GraphQL）。
+    返回 user 字段（id/email/firstName/lastName/su 等），用于确认当前认证身份。
+    若返回未认证错误，先调用 acunetix_use_api_key 或 acunetix_login。"""
     try:
         return _ok(get_client().me())
     except Exception as exc:
@@ -225,7 +230,7 @@ def acunetix_gql(operation_name: str, query: str,
     - query: 完整 GraphQL 文本（依据官方文档与已知操作清单）
     - variables: 变量对象（可选）
     注意：本系统 introspection 已禁用，必须使用已知操作名与字段结构。
-    """
+    返回结构随具体操作而异（data 或 errors[]）。"""
     try:
         return _ok(get_client().gql(operation_name, query, variables or {}))
     except Exception as exc:
@@ -245,7 +250,8 @@ def acunetix_rest(method: str, path: str, params: dict | None = None,
     - params: 查询参数（可选）
     - body: JSON 请求体（POST/PUT 等写操作需要）
     高风险写操作请确保意图明确。
-    """
+    提示：写操作（PATCH/POST）后建议 GET 回读确认落盘——部分端点存在
+    "返回成功但未生效"的静默失效，回读是唯一可靠确认方式。"""
     try:
         return _ok(get_client().rest(method.upper(), path, params=params, json_body=body))
     except Exception as exc:
@@ -269,8 +275,9 @@ def acunetix_list_targets(limit: int = 20) -> dict:
 @mcp.tool()
 def acunetix_get_target(target_id: str) -> dict:
     """获取单个目标详情（GET /api/v1/targets/{id}）。
-    返回中附 auth_config 登录配置摘要（login.kind / custom_cookies / login_sequence），
-    供判断该目标是否需要/已配置登录态。"""
+    - target_id: 目标 ID（acunetix_list_targets 获取）
+    返回目标详情，并附 auth_config 登录配置摘要（login.kind / custom_cookies /
+    login_sequence），供判断该目标是否需要/已配置登录态。"""
     try:
         c = get_client()
         data = c.rest_target(target_id)
@@ -324,7 +331,11 @@ def acunetix_list_vulnerabilities(limit: int = 20) -> dict:
 
 @mcp.tool()
 def acunetix_list_reports(limit: int = 20) -> dict:
-    """列出已生成报告（GET /api/v1/reports?l=N）。"""
+    """列出已生成报告（GET /api/v1/reports?l=N）——【摘要级】。
+    - limit: 返回条数（默认 20）
+    返回报告列表（report_id/名称/格式/大小/状态等）。
+    生成报告用 acunetix_gql（GetReport 操作）；获取报告详情/内容用
+    acunetix_rest（GET reports/{report_id}）。"""
     try:
         return _ok(get_client().rest_reports(limit))
     except Exception as exc:
@@ -356,6 +367,7 @@ def acunetix_add_target(address: str, description: str = "",
     【写操作】新增扫描目标（POST /api/v1/targets）。
     - address: 目标 URL/IP，如 http://example.com
     - criticality: 官方枚举 Critical[30]/High[20]/Normal[10]/Low[0]，默认 10；其他值报 400
+    返回：target_id（后续配置登录态/启动扫描都需此 ID）。
     - 提示：新增后若站点需登录，可配置登录态（acunetix_set_custom_cookies /
       acunetix_upload_login_sequence）；扫描前用 acunetix_preflight_scan 检查登录就绪度。
     """
@@ -422,7 +434,9 @@ def acunetix_verify_custom_cookies(target_id: str) -> dict:
 def acunetix_clear_custom_cookies(target_id: str) -> dict:
     """
     【写操作】清空目标的自定义 Cookie。
-    注意：不自动修改 login.kind，恢复登录方式（如 automatic）由调用方显式决定。
+    注意：不自动修改 login.kind，恢复登录方式（如 automatic）由调用方显式决定——
+    可用 acunetix_rest（method=PATCH, path=targets/{target_id}/configuration,
+    body={"login":{"kind":"automatic"}}）恢复。
     - target_id: 目标 ID
     返回 cleared 状态与清理前摘要。
     """
@@ -453,6 +467,8 @@ def acunetix_apply_login_sequence(target_id: str) -> dict:
     """
     【写操作】应用已上传的登录序列（PATCH login.kind=sequence）+ 回读确认。
     应用后扫描器将按 .lsr 录制内容重放登录。
+    前置：需先调 acunetix_upload_login_sequence 上传 .lsr；未上传时服务端返回 409
+    "Login sequence not found"（工具会转友好提示）。
     - target_id: 目标 ID
     返回 applied/login_kind 状态。
     """
@@ -479,7 +495,9 @@ def acunetix_get_login_sequence(target_id: str) -> dict:
 def acunetix_delete_login_sequence(target_id: str) -> dict:
     """
     【写操作】删除目标的登录序列（.lsr）。
-    注意：删除后不自动修改 login.kind，恢复登录方式由调用方显式决定。
+    注意：删除后不自动修改 login.kind，恢复登录方式由调用方显式决定——
+    可用 acunetix_rest（method=PATCH, path=targets/{target_id}/configuration,
+    body={"login":{"kind":"automatic"}}）恢复。
     - target_id: 目标 ID
     返回 deleted 状态与删除前摘要。
     """
