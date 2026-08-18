@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "acunetix-mcp": {
+      "type": "local",
+      "command": "python",
+      "args": ["-m", "acunetix_mcp"],
+      "environment": {
+        "ACUNETIX_BASE_URL": "https://localhost:3443",
+        "ACUNETIX_API_KEY": "<在这里粘贴你的 API Key>",
+        "ACUNETIX_EMAIL": "<或在这里填登录邮箱>",
+        "ACUNETIX_PASSWORD": "<或在这里填登录密码>",
+        "ACUNETIX_VERIFY_SSL": "false"
+      }
+    }
+  }
+}

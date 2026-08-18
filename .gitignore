@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.env
+selftest_out.txt
+selftest_err.txt
+
+# 合规：以下官方专有文档/内部报告/内部测试脚本仅本地保留，不上传
+docs/Acunetix-API-Documentation.yaml
+docs/TEST_REPORT_v1.1.1.md
+docs/CHANGE_REPORT_v1.1.3.md
+docs/VERIFICATION.md
+tests/verify_all_endpoints.py
