@@ -1,4 +1,4 @@
-# Awvs MCP Server
+# 非官方Awvs MCP Server
 
 **Model Context Protocol (MCP) server that lets any LLM (Claude, WorkBuddy, Cursor, etc.) directly operate an Acunetix / Invicti Web Vulnerability Scanner.**
 
