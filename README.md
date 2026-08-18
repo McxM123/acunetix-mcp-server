@@ -2,9 +2,9 @@
 
 **Model Context Protocol (MCP) server that lets any LLM (Claude, WorkBuddy, Cursor, etc.) directly operate an Acunetix / Invicti Web Vulnerability Scanner.**
 
-**当前版本：v1.1.4**
+**当前版本：v1.3.1**
 
-基于官方内置 API 文档（Swagger 2.0，111 路径 / 161 操作）与公开接口行为分析，将 Acunetix 的完整 API 协议（GraphQL + REST 双通道）封装为 15 个 LLM 可调用工具。官方已确认该产品提供完整 REST API，本 Server 是其 MCP 化封装。
+基于官方内置 API 文档（Swagger 2.0，111 路径 / 161 操作）与公开接口行为分析，将 Acunetix 的完整 API 协议（GraphQL + REST 双通道）封装为 23 个 LLM 可调用工具。官方已确认该产品提供完整 REST API，本 Server 是其 MCP 化封装。
 
 ---
 
@@ -112,7 +112,7 @@ python -m acunetix_mcp
 
 ---
 
-## Available Tools (22)
+## Available Tools (23)
 
 | Tool | Type | Description |
 |---|---|---|
@@ -122,15 +122,16 @@ python -m acunetix_mcp
 | `acunetix_me` | query | 当前用户信息（GraphQL） |
 | `acunetix_gql` | **generic** | 任意 GraphQL query/mutation（覆盖任意功能） |
 | `acunetix_rest` | **generic** | 任意 REST 端点调用（GET/POST/PUT/DELETE） |
-| `acunetix_list_targets` | business | 目标列表 |
-| `acunetix_get_target` | business | 单目标详情 |
+| `acunetix_list_targets` | business | 目标列表（附登录配置摘要） |
+| `acunetix_get_target` | business | 单目标详情（附 auth_config 登录摘要） |
 | `acunetix_list_scans` | business | 扫描列表 |
 | `acunetix_list_vulnerabilities` | business | 漏洞列表 |
 | `acunetix_list_reports` | business | 报告列表 |
 | `acunetix_list_scan_profiles` | business | 扫描配置 |
 | `acunetix_stats` | business | 用户统计（最易受攻击目标） |
 | `acunetix_add_target` | **write** | 新增目标（criticality: 30/20/10/0） |
-| `acunetix_start_scan` | **write** | 启动扫描 |
+| `acunetix_preflight_scan` | query | **扫描前登录就绪检查**（coverage_risk/guidance） |
+| `acunetix_start_scan` | **write** | 启动扫描（描述含登录前置检查引导） |
 | `acunetix_set_custom_cookies` | **write** | 写入自定义 Cookie 建立登录态（回读验证落盘） |
 | `acunetix_verify_custom_cookies` | query | 核查自定义 Cookie 配置状态 |
 | `acunetix_clear_custom_cookies` | **write** | 清空自定义 Cookie（不自动改 login.kind） |
