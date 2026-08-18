@@ -112,7 +112,7 @@ python -m acunetix_mcp
 
 ---
 
-## Available Tools (18)
+## Available Tools (22)
 
 | Tool | Type | Description |
 |---|---|---|
@@ -134,6 +134,10 @@ python -m acunetix_mcp
 | `acunetix_set_custom_cookies` | **write** | 写入自定义 Cookie 建立登录态（回读验证落盘） |
 | `acunetix_verify_custom_cookies` | query | 核查自定义 Cookie 配置状态 |
 | `acunetix_clear_custom_cookies` | **write** | 清空自定义 Cookie（不自动改 login.kind） |
+| `acunetix_upload_login_sequence` | **write** | 上传 .lsr 登录序列文件（LSR 流程） |
+| `acunetix_apply_login_sequence` | **write** | 应用登录序列（login.kind=sequence） |
+| `acunetix_get_login_sequence` | query | 查询登录序列配置状态 |
+| `acunetix_delete_login_sequence` | **write** | 删除登录序列（幂等） |
 
 > 通用执行器（`acunetix_gql` / `acunetix_rest`）可覆盖官方 YAML 中全部 111 路径 / 161 操作。
 
@@ -173,6 +177,21 @@ python -m acunetix_mcp
   { "mcpServers": { "js-reverse": { "command": "npx", "args": ["js-reverse-mcp"] } } }
   ```
 - Cookie 会过期（有效期取决于目标站点），过期后需重新获取并再次写入。
+
+### 备选：Login Sequence（.lsr 录制登录序列）
+
+若需更强地对抗复杂登录流程（多步/动态验证），可用 Invicti 官方 **Login Sequence Recorder**
+（GUI 录制一次真实登录生成 `.lsr`），再通过工具上传并应用：
+
+```
+1. Acunetix GUI 录制登录 → 生成 .lsr 文件（GUI 操作，AI 无法代做）
+2. acunetix_upload_login_sequence(target_id, "<本地.lsr路径>")   # 上传
+3. acunetix_apply_login_sequence(target_id)                     # 应用（kind=sequence）
+4. acunetix_start_scan(target_id, profile_id)                   # 按 .lsr 重放登录扫描
+5. acunetix_get_login_sequence / acunetix_delete_login_sequence # 查询/删除
+```
+
+> 上传要求 .lsr 来自 Login Sequence Recorder 录制（服务端校验格式）；未上传时 apply 会提示先上传。
 
 ---
 

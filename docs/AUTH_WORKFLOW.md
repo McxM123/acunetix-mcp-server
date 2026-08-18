@@ -124,3 +124,50 @@ acunetix_list_vulnerabilities()              # 获取结果
 - Cookie 是登录凭证的等价物：**不要**将其写入日志、提交到仓库或回显到对话
 - 工具已设计为只返回摘要（长度/域名）；调用方同样应避免打印完整 Cookie
 - 建议使用专用测试账号，避免暴露真实账号会话
+
+---
+
+## 七、方案 A 手动退回（无浏览器自动化环境）
+
+不依赖 js-reverse / 任何浏览器工具，完全手动获取 Cookie：
+
+```
+1. 任意浏览器（Chrome/Edge/Firefox）打开目标站点并完成登录
+2. F12 → Application → Cookies，复制全部 Cookie 拼接为 "k1=v1; k2=v2; ..." 串
+   （或从 Network 面板任选一个已登录请求，复制其 Cookie 请求头）
+3. （可选自检）在终端执行：
+   curl -s -o /dev/null -w "%{http_code}" -H "Cookie: <完整串>" https://<站点>/<登录后路径>
+   → 200 表示 Cookie 有效；302/401 表示 Cookie 缺失或已过期
+4. 把 Cookie 串交给 LLM → acunetix_set_custom_cookies(target_id, cookie_str)
+5. acunetix_verify_custom_cookies(target_id) → 确认落盘
+6. acunetix_start_scan(...) → 以登录态扫描
+```
+
+**与自动路径的唯一区别**：步骤 1-3 由人工完成；步骤 4-6 与自动路径完全相同（工具层一致）。
+
+---
+
+## 八、方案 B：Login Sequence（.lsr）登录序列
+
+适用于多步/动态验证等复杂登录（Cookie 方案覆盖不了的场景）。
+
+**流程**：
+
+```
+1. 【GUI 用户操作】Acunetix UI → 目标 Site Login → Login Sequence Recorder
+   → 在弹出的浏览器中手动完成一次登录 → 保存生成 .lsr 文件
+   （录制必须真人操作，AI 无法代做）
+2. acunetix_upload_login_sequence(target_id, "<本地.lsr绝对路径>")
+   → 上传成功（服务端会校验 LSR 格式，非 Recorder 录制文件会被拒）
+3. acunetix_apply_login_sequence(target_id)
+   → applied: true（login.kind=sequence）
+   （若未上传直接 apply，工具会提示"请先上传"）
+4. acunetix_start_scan(target_id, profile_id) → 扫描器按 .lsr 重放登录
+5. acunetix_get_login_sequence(target_id)      # 查询状态
+   acunetix_delete_login_sequence(target_id)   # 删除（幂等）
+```
+
+**要点**：
+- `.lsr` 由官方 Recorder 录制（含设备指纹与操作序列），对抗多步/动态流程最强
+- 上传 API 需 `Content-Range` + `Content-Disposition` 头（协议细节见 PROTOCOL.md §8）
+- 适用优先级：**Custom Cookies（A）> LSR（B）> automatic**——Cookie 最轻量，LSR 用于 Cookie 覆盖不了的场景

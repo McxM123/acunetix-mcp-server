@@ -94,3 +94,26 @@ GET  /api/v1/me/stats         # 统计
 **注意**：
 - Cookie 有效期由目标站点决定（如会话类 Cookie 常为 1 天~30 天），过期后需重新获取并再次写入
 - Cookie 含登录凭证，工具返回仅给摘要（长度/域名），不回显完整值
+
+## 8. Login Sequence（.lsr）协议（v1.3.0）
+
+针对复杂登录（多步/动态验证），用官方 Login Sequence Recorder 录制登录序列。
+
+**上传流程**（端点：`/targets/{id}/configuration/login_sequence`）：
+
+```
+1. POST（body: FileUploadDescriptor {name, size}）→ 200 {upload_url}
+   注意：upload_url 为相对路径（/uploads/<uuid>），需拼接 API 服务 origin
+2. POST upload_url（application/octet-stream）+ 必带头：
+   - Content-Range: bytes 0-<size-1>/<size>     （分块上传协议）
+   - Content-Disposition: attachment; filename="<name>.lsr"
+   → 200 成功；409 = 服务端校验 LSR 格式失败（文件必须来自 Recorder 录制）
+```
+
+**应用**：`PATCH /targets/{id}/configuration` → `{"login": {"kind": "sequence"}}`
+- 未上传 .lsr 时返回 **409 "Login sequence not found"**（服务端强制先上传）
+- `SiteLogin.kind` 枚举：`none | automatic | sequence | oauth`
+
+**查询/删除**：
+- `GET` 同端点 → `UploadedFile {upload_id, name, size, status}`；未配置时 **404**
+- `DELETE` 同端点 → 204；未配置时 404（视为已删除，幂等）

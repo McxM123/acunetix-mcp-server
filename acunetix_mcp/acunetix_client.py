@@ -410,6 +410,106 @@ class AcunetixClient:
             "note": "已清空 custom_cookies；login.kind 未改动（当前为 %s），如需恢复登录方式请显式调用" % prev_login,
         }
 
+    def upload_login_sequence(self, target_id, file_path):
+        """上传 .lsr 登录序列文件到目标（官方 LSR 流程，v1.3.0）。
+
+        .lsr 文件由 Acunetix GUI 的 Login Sequence Recorder 录制生成（AI 无法代做录制，
+        本方法只负责上传环节）：
+        1) 读本地 .lsr → 2) POST FileUploadDescriptor{name,size} 拿 upload_url
+        3) octet-stream 上传二进制 → 4) 返回上传状态。
+        上传成功 ≠ 已应用；需再调 apply_login_sequence（login.kind=sequence）。"""
+        import os
+        if not os.path.isfile(file_path):
+            raise ValueError(f"文件不存在: {file_path}")
+        if not file_path.lower().endswith(".lsr"):
+            raise ValueError("文件必须是 .lsr 格式（Login Sequence Recorder 录制产物）")
+        size = os.path.getsize(file_path)
+        name = os.path.basename(file_path)
+        # 1) 申请临时上传 URL（实测返回相对路径 /uploads/xxx，需拼接 origin）
+        resp = self.rest("POST", f"targets/{target_id}/configuration/login_sequence",
+                         json_body={"name": name, "size": size})
+        upload_url = resp.get("upload_url")
+        if not upload_url:
+            raise AcunetixAPIError(f"未获得上传 URL: {resp}")
+        if upload_url.startswith("/"):
+            from urllib.parse import urlparse
+            p = urlparse(self.base_url)
+            upload_url = f"{p.scheme}://{p.netloc}{upload_url}"
+        # 2) octet-stream 上传 .lsr 二进制（临时 URL 无需认证头；
+        #    实测需 Content-Range + Content-Disposition，服务端按分块上传协议校验）
+        with open(file_path, "rb") as f:
+            data = f.read()
+        r = self.session.request("POST", upload_url, data=data,
+                                 headers={"Content-Type": "application/octet-stream",
+                                          "Content-Range": f"bytes 0-{len(data)-1}/{len(data)}",
+                                          "Content-Disposition": f'attachment; filename="{name}"'},
+                                 verify=self.verify_ssl, timeout=self.timeout)
+        if r.status_code not in (200, 201, 204):
+            raise AcunetixAPIError(
+                f"LSR 上传失败: HTTP {r.status_code} {r.text[:200]}"
+                + ("（服务端校验 LSR 格式失败——请确认文件来自 Login Sequence Recorder 录制）"
+                   if r.status_code == 409 else ""))
+        return {
+            "uploaded": True,
+            "name": name,
+            "size": size,
+            "note": "上传成功；还需调用 apply_login_sequence 应用（login.kind=sequence）",
+        }
+
+    def apply_login_sequence(self, target_id):
+        """应用已上传的登录序列（PATCH login.kind=sequence）+ 回读确认。
+        未上传 .lsr 时服务端返回 409 "Login sequence not found"——转为友好提示。"""
+        try:
+            self.rest("PATCH", f"targets/{target_id}/configuration",
+                      json_body={"login": {"kind": "sequence"}})
+        except AcunetixAPIError as exc:
+            if "Login sequence not found" in str(exc):
+                return {
+                    "applied": False,
+                    "login_kind": None,
+                    "hint": "目标未上传登录序列（.lsr）——请先调用 upload_login_sequence 上传后再应用",
+                }
+            raise
+        after = self.rest("GET", f"targets/{target_id}/configuration")
+        kind = after.get("login", {}).get("kind")
+        return {
+            "applied": kind == "sequence",
+            "login_kind": kind,
+            "note": "登录序列已应用；扫描器将按 .lsr 重放登录",
+        }
+
+    def get_login_sequence(self, target_id):
+        """查询目标当前登录序列（.lsr）状态（只读）。
+        未配置时 GET 返回 404 → 视为 configured=False（正常状态）。"""
+        try:
+            resp = self.rest("GET", f"targets/{target_id}/configuration/login_sequence")
+        except AcunetixAPIError as exc:
+            if "404" in str(exc):
+                return {"configured": False, "files": [], "note": "目标当前未配置登录序列"}
+            raise
+        if isinstance(resp, dict):
+            files = resp.get("files")
+            if isinstance(files, list) and files:
+                return {"configured": True, "files": files}
+            if resp.get("upload_id"):
+                return {"configured": True, "files": [resp]}
+        return {"configured": False, "files": []}
+
+    def delete_login_sequence(self, target_id):
+        """删除目标的登录序列（.lsr）；未配置时删除视为成功（幂等）。"""
+        before = self.get_login_sequence(target_id)
+        try:
+            self.rest("DELETE", f"targets/{target_id}/configuration/login_sequence")
+        except AcunetixAPIError as exc:
+            if "404" not in str(exc):
+                raise
+        after = self.get_login_sequence(target_id)
+        return {
+            "deleted": not after.get("configured"),
+            "previous": before,
+            "note": "已删除登录序列；如需恢复登录方式请显式配置 login.kind",
+        }
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

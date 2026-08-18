@@ -319,6 +319,99 @@ def test_clear_custom_cookies_no_login_change():
     print("  PASS: clear 清空 cookie，login.kind 保持不变")
 
 
+def test_upload_login_sequence_flow():
+    """v1.3.0：upload_login_sequence 构造 FileUploadDescriptor 并 octet-stream 上传"""
+    import tempfile
+    c = AcunetixClient(base_url="https://localhost:3443")
+    c.use_api_key("x" * 64)
+    rest_calls = []
+
+    def fake_rest(method, path, params=None, json_body=None):
+        rest_calls.append((method, path, json_body))
+        return {"upload_url": "https://upload.local/tmp/x"}
+
+    c.rest = fake_rest
+    up = {}
+
+    def fake_sess_req(method, url, **kwargs):
+        up["url"] = url
+        up["ct"] = kwargs.get("headers", {}).get("Content-Type")
+        up["data"] = kwargs.get("data")
+        class _R:
+            status_code = 200
+            text = "ok"
+        return _R()
+
+    c.session.request = fake_sess_req
+    with tempfile.NamedTemporaryFile(suffix=".lsr", delete=False) as f:
+        f.write(b"LSR-SEQ-DEMO")
+        path = f.name
+    try:
+        r = c.upload_login_sequence("t1", path)
+        assert r["uploaded"] is True
+        assert r["size"] == len(b"LSR-SEQ-DEMO")
+        assert rest_calls[0][1] == "targets/t1/configuration/login_sequence"
+        assert rest_calls[0][2] == {"name": path.split("\\")[-1].split("/")[-1],
+                                    "size": len(b"LSR-SEQ-DEMO")}
+        assert up["url"] == "https://upload.local/tmp/x"
+        assert up["ct"] == "application/octet-stream"
+        assert up["data"] == b"LSR-SEQ-DEMO"
+        print("  PASS: upload_login_sequence 构造 descriptor + octet-stream 上传")
+    finally:
+        import os as _os
+        _os.unlink(path)
+
+
+def test_apply_login_sequence_verified():
+    """v1.3.0：apply_login_sequence PATCH kind=sequence + 回读确认"""
+    c = AcunetixClient(base_url="https://localhost:3443")
+    c.use_api_key("x" * 64)
+
+    def fake_rest(method, path, params=None, json_body=None):
+        if method == "PATCH":
+            assert json_body == {"login": {"kind": "sequence"}}, f"PATCH body 错误: {json_body}"
+            return None
+        return {"login": {"kind": "sequence"}}
+
+    c.rest = fake_rest
+    r = c.apply_login_sequence("t1")
+    assert r["applied"] is True
+    assert r["login_kind"] == "sequence"
+    print("  PASS: apply_login_sequence PATCH + 回读")
+
+
+def test_get_login_sequence_state():
+    """v1.3.0：get_login_sequence 解析 UploadedFile（files / upload_id 两种形态）"""
+    c = AcunetixClient(base_url="https://localhost:3443")
+    c.use_api_key("x" * 64)
+    c.rest = lambda *a, **k: {"files": [{"upload_id": "u1", "name": "a.lsr", "size": 10}]}
+    assert c.get_login_sequence("t1")["configured"] is True
+    c.rest = lambda *a, **k: {"upload_id": "u2", "name": "b.lsr", "size": 5}
+    assert c.get_login_sequence("t1")["configured"] is True
+    c.rest = lambda *a, **k: {}
+    assert c.get_login_sequence("t1")["configured"] is False
+    print("  PASS: get_login_sequence 三种响应形态解析")
+
+
+def test_delete_login_sequence():
+    """v1.3.0：delete_login_sequence 删除后 configured=False"""
+    c = AcunetixClient(base_url="https://localhost:3443")
+    c.use_api_key("x" * 64)
+    state = {"present": True}
+
+    def fake_rest(method, path, params=None, json_body=None):
+        if method == "DELETE":
+            state["present"] = False
+            return None
+        return {"files": [{"upload_id": "u1"}]} if state["present"] else {}
+
+    c.rest = fake_rest
+    r = c.delete_login_sequence("t1")
+    assert r["deleted"] is True
+    assert r["previous"]["configured"] is True
+    print("  PASS: delete_login_sequence 删除 + 前状态摘要")
+
+
 if __name__ == "__main__":
     test_rest_params_transparent()
     test_rest_targets_limit()
@@ -335,4 +428,8 @@ if __name__ == "__main__":
     test_set_custom_cookies_verified()
     test_get_custom_cookies_summary()
     test_clear_custom_cookies_no_login_change()
+    test_upload_login_sequence_flow()
+    test_apply_login_sequence_verified()
+    test_get_login_sequence_state()
+    test_delete_login_sequence()
     print("\n=== 回归测试全部通过 ===")

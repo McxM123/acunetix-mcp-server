@@ -43,7 +43,7 @@ from acunetix_client import (
 )
 
 # 项目版本号（单一来源；__init__.py 的 __version__ 引用此值）
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("acunetix-mcp")
@@ -376,6 +376,63 @@ def acunetix_clear_custom_cookies(target_id: str) -> dict:
     """
     try:
         return _ok(get_client().clear_custom_cookies(target_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def acunetix_upload_login_sequence(target_id: str, file_path: str) -> dict:
+    """
+    【写操作】上传 .lsr 登录序列文件到目标（官方 LSR 流程）。
+    .lsr 文件由 Acunetix GUI 的 Login Sequence Recorder 录制生成（AI 无法代做录制，
+    本工具只负责上传环节）；上传后需调 acunetix_apply_login_sequence 应用。
+    - target_id: 目标 ID
+    - file_path: 本地 .lsr 文件绝对路径
+    返回 uploaded/name/size 摘要。
+    """
+    try:
+        return _ok(get_client().upload_login_sequence(target_id, file_path))
+    except Exception as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def acunetix_apply_login_sequence(target_id: str) -> dict:
+    """
+    【写操作】应用已上传的登录序列（PATCH login.kind=sequence）+ 回读确认。
+    应用后扫描器将按 .lsr 录制内容重放登录。
+    - target_id: 目标 ID
+    返回 applied/login_kind 状态。
+    """
+    try:
+        return _ok(get_client().apply_login_sequence(target_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def acunetix_get_login_sequence(target_id: str) -> dict:
+    """
+    【只读】查询目标当前登录序列（.lsr）配置状态。
+    - target_id: 目标 ID
+    返回 configured 与文件摘要（upload_id/name/size）。
+    """
+    try:
+        return _ok(get_client().get_login_sequence(target_id))
+    except Exception as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def acunetix_delete_login_sequence(target_id: str) -> dict:
+    """
+    【写操作】删除目标的登录序列（.lsr）。
+    注意：删除后不自动修改 login.kind，恢复登录方式由调用方显式决定。
+    - target_id: 目标 ID
+    返回 deleted 状态与删除前摘要。
+    """
+    try:
+        return _ok(get_client().delete_login_sequence(target_id))
     except Exception as exc:
         return _err(exc)
 
