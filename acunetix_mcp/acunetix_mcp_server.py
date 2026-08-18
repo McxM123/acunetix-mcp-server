@@ -43,7 +43,7 @@ from acunetix_client import (
 )
 
 # 项目版本号（单一来源；__init__.py 的 __version__ 引用此值）
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("acunetix-mcp")
@@ -133,6 +133,12 @@ def acunetix_login(email: str | None = None, password: str | None = None,
     - 成功后 token 保存在内存中，后续工具自动携带认证
     - 注意：系统有单会话约束，会话登录会顶掉其他在线会话
     提示：官方推荐方式是 acunetix_use_api_key（无单会话约束）。
+
+    【重要区分】本工具登录的是 **Acunetix 扫描系统**（本 MCP 的认证），
+    **不等于目标网站的登录态**。目标网站需要登录时，需单独配置：
+    automatic（目标配置已生效）/ custom_cookies（acunetix_set_custom_cookies）
+    / LSR（acunetix_upload_login_sequence + apply）。判断目标登录态请用
+    acunetix_preflight_scan。
     """
     try:
         c = get_client()
@@ -173,6 +179,9 @@ def acunetix_use_api_key(api_key: str) -> dict:
     - api_key: Profile 页 → API Key → Generate new API key 生成的 64 位密钥
     - 纯 X-Auth 头认证：REST 与 GraphQL 均可用，无需登录、无单会话约束
     - 若在环境变量 ACUNETIX_API_KEY 中配置，MCP server 启动时已自动启用，无需调用本工具
+
+    【重要区分】本工具认证的是 **Acunetix 扫描系统**，**不等于目标网站的登录态**。
+    目标网站需登录时请单独配置（见 acunetix_preflight_scan 指引）。
     """
     try:
         c = get_client()
@@ -248,7 +257,9 @@ def acunetix_rest(method: str, path: str, params: dict | None = None,
 # ======================================================================
 @mcp.tool()
 def acunetix_list_targets(limit: int = 20) -> dict:
-    """列出扫描目标（GET /api/v1/targets?l=N），含地址/ID/漏洞计数。"""
+    """列出扫描目标（GET /api/v1/targets?l=N），含地址/ID/漏洞计数。
+    提示：目标登录配置摘要（auth_config）请用 acunetix_get_target 或
+    acunetix_preflight_scan 查看（本列表不逐目标查询，避免慢查询）。"""
     try:
         return _ok(get_client().rest_targets(limit))
     except Exception as exc:
@@ -257,9 +268,31 @@ def acunetix_list_targets(limit: int = 20) -> dict:
 
 @mcp.tool()
 def acunetix_get_target(target_id: str) -> dict:
-    """获取单个目标详情（GET /api/v1/targets/{id}）。"""
+    """获取单个目标详情（GET /api/v1/targets/{id}）。
+    返回中附 auth_config 登录配置摘要（login.kind / custom_cookies / login_sequence），
+    供判断该目标是否需要/已配置登录态。"""
     try:
-        return _ok(get_client().rest_target(target_id))
+        c = get_client()
+        data = c.rest_target(target_id)
+        # 附加登录配置摘要（信息完备支持决策：LLM 可据此判断是否需要登录态）
+        data["auth_config"] = c.get_auth_config(target_id)
+        return _ok(data)
+    except Exception as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def acunetix_preflight_scan(target_id: str) -> dict:
+    """
+    【只读】扫描前登录就绪检查：读取目标登录配置并评估登录后区域覆盖风险。
+    - target_id: 目标 ID（acunetix_list_targets 获取）
+    返回 login_kind / custom_cookies_count / login_sequence_configured /
+    auth_ready_hint / coverage_risk / guidance。
+    用途：启动扫描前判断是否需要先配置登录态。本工具只提供决策信息，
+    **不拦截扫描**——是否配置登录态、是否询问用户，由 LLM 决定。
+    """
+    try:
+        return _ok(get_client().preflight_scan(target_id))
     except Exception as exc:
         return _err(exc)
 
@@ -316,6 +349,8 @@ def acunetix_add_target(address: str, description: str = "",
     【写操作】新增扫描目标（POST /api/v1/targets）。
     - address: 目标 URL/IP，如 http://example.com
     - criticality: 官方枚举 Critical[30]/High[20]/Normal[10]/Low[0]，默认 10；其他值报 400
+    - 提示：新增后若站点需登录，可配置登录态（acunetix_set_custom_cookies /
+      acunetix_upload_login_sequence）；扫描前用 acunetix_preflight_scan 检查登录就绪度。
     """
     try:
         return _ok(get_client().rest_add_target(address, description, criticality))
@@ -329,6 +364,14 @@ def acunetix_start_scan(target_id: str, profile_id: str) -> dict:
     【写操作】对目标启动扫描（POST /api/v1/scans）。
     - target_id: 目标 ID（acunetix_list_targets 获取）
     - profile_id: 扫描配置 ID（acunetix_list_scan_profiles 获取）
+
+    【登录前置检查（重要）】若目标含登录后受限区域，启动扫描前应确认登录配置：
+    1. 先调 acunetix_get_target 或 acunetix_preflight_scan 查看 auth_config / coverage_risk
+    2. 若未配置登录态且目标可能需登录：
+       - 询问用户是否需要登录后扫描
+       - 需要则配置：custom_cookies（acunetix_set_custom_cookies）或
+         LSR（acunetix_upload_login_sequence + apply）或确认 automatic 已生效
+    3. 未配置登录态直接扫描 = 只能覆盖匿名可见内容，登录后区域不可达。
     """
     try:
         return _ok(get_client().rest_start_scan(target_id, profile_id))
@@ -346,6 +389,8 @@ def acunetix_set_custom_cookies(target_id: str, cookie_str: str, url: str = "") 
     - cookie_str: 完整 Cookie 串（如 "session=xxx; uid=yyy"），需包含登录会话凭证
     - url: Cookie 作用域 URL（可选，默认取目标 address 的 origin）
     返回 applied/verified 状态与摘要；不回显 cookie 完整值（敏感信息）。
+    前置判断：先用 acunetix_preflight_scan 确认目标登录态需求；写入后用
+    acunetix_verify_custom_cookies 核查，再 acunetix_start_scan。
     """
     try:
         return _ok(get_client().set_custom_cookies(target_id, cookie_str, url))

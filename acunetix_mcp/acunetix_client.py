@@ -510,6 +510,42 @@ class AcunetixClient:
             "note": "已删除登录序列；如需恢复登录方式请显式配置 login.kind",
         }
 
+    def get_auth_config(self, target_id):
+        """获取目标登录配置摘要（login.kind + custom_cookies + login_sequence）。
+        供 LLM 在扫描前判断目标是否需要/已配置登录态（信息完备支持决策）。"""
+        cfg = self.rest("GET", f"targets/{target_id}/configuration")
+        ck = cfg.get("custom_cookies", [])
+        ls = self.get_login_sequence(target_id)  # 内部已容错 404
+        kind = cfg.get("login", {}).get("kind")
+        return {
+            "login_kind": kind,
+            "custom_cookies_count": len(ck),
+            "custom_cookies_urls": [c.get("url") for c in ck],
+            "login_sequence_configured": ls.get("configured"),
+            "auth_ready_hint": (
+                "custom_cookies" if ck else
+                "login_sequence" if ls.get("configured") else
+                "none（目标未配置登录态：若站点需登录，扫描登录后区域前必须先配置）"),
+        }
+
+    def preflight_scan(self, target_id):
+        """扫描前登录就绪检查：读取登录配置 + 评估覆盖风险（信息完备支持决策，不拦截扫描）。"""
+        auth = self.get_auth_config(target_id)
+        if auth["login_kind"] == "automatic":
+            coverage_risk = "low（已启用 automatic 自动登录）"
+        elif auth["custom_cookies_count"] > 0 or auth["login_sequence_configured"]:
+            coverage_risk = "low（已配置登录态）"
+        else:
+            coverage_risk = "high（未配置登录态——若站点含登录后区域，扫描无法覆盖）"
+        auth["coverage_risk"] = coverage_risk
+        auth["guidance"] = (
+            "扫描前建议：若目标需要登录，先配置登录态"
+            "（automatic 已生效则直接扫；否则 acunetix_set_custom_cookies 或 "
+            "acunetix_upload_login_sequence + apply）；确认后调用 acunetix_start_scan。"
+            "若不确定目标是否需要登录，可询问用户。"
+        )
+        return auth
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

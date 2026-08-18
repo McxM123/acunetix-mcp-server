@@ -412,6 +412,35 @@ def test_delete_login_sequence():
     print("  PASS: delete_login_sequence 删除 + 前状态摘要")
 
 
+def test_preflight_scan_risk_levels():
+    """v1.3.1：preflight_scan 按登录配置输出正确的覆盖风险评估"""
+    c = AcunetixClient(base_url="https://localhost:3443")
+    c.use_api_key("x" * 64)
+    # 场景1：custom_cookies 已配置 → 覆盖风险 low
+    c.get_auth_config = lambda tid: {
+        "login_kind": "none", "custom_cookies_count": 1,
+        "custom_cookies_urls": ["https://example.com/"],
+        "login_sequence_configured": False, "auth_ready_hint": "custom_cookies"}
+    r1 = c.preflight_scan("t1")
+    assert "low" in r1["coverage_risk"], f"场景1 应为 low: {r1}"
+    # 场景2：未配置任何登录态 → 覆盖风险 high
+    c.get_auth_config = lambda tid: {
+        "login_kind": "none", "custom_cookies_count": 0,
+        "custom_cookies_urls": [], "login_sequence_configured": False,
+        "auth_ready_hint": "none（目标未配置登录态）"}
+    r2 = c.preflight_scan("t1")
+    assert "high" in r2["coverage_risk"], f"场景2 应为 high: {r2}"
+    # 场景3：automatic → 覆盖风险 low
+    c.get_auth_config = lambda tid: {
+        "login_kind": "automatic", "custom_cookies_count": 0,
+        "custom_cookies_urls": [], "login_sequence_configured": False,
+        "auth_ready_hint": "automatic"}
+    r3 = c.preflight_scan("t1")
+    assert "low" in r3["coverage_risk"], f"场景3 应为 low: {r3}"
+    assert "guidance" in r3 and "acunetix_start_scan" in r3["guidance"]
+    print("  PASS: preflight_scan 三种登录配置的风险评估")
+
+
 if __name__ == "__main__":
     test_rest_params_transparent()
     test_rest_targets_limit()
@@ -432,4 +461,5 @@ if __name__ == "__main__":
     test_apply_login_sequence_verified()
     test_get_login_sequence_state()
     test_delete_login_sequence()
+    test_preflight_scan_risk_levels()
     print("\n=== 回归测试全部通过 ===")
